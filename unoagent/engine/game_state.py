@@ -19,6 +19,7 @@ class GameState:
     pending_draws: int  # accumulated Draw Two/Four
     winner: Optional[str] = None
     player_order: tuple[str, ...] = field(default_factory=tuple)
+    history: tuple[str, ...] = field(default_factory=tuple)  # Log of events
 
     def top_discard(self) -> Optional[Card]:
         """Return the top card on the discard pile."""
@@ -42,6 +43,7 @@ class PlayerView:
     winner: Optional[str]
     player_order: tuple[str, ...]
     num_cards_per_player: Dict[str, int]  # player_id -> count (for others, not own)
+    history: List[str]  # Recent game events
 
     @classmethod
     def from_state(cls, state: GameState, player_id: str) -> "PlayerView":
@@ -60,4 +62,5 @@ class PlayerView:
             winner=state.winner,
             player_order=state.player_order,
             num_cards_per_player=num_cards,
+            history=list(state.history[-10:]),  # Last 10 events
         )

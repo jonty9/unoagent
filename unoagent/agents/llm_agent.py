@@ -40,7 +40,13 @@ def _format_player_view(pv: PlayerView, player_id: str) -> str:
         "",
         "=== Pending draws (for next player) ===",
         str(pv.pending_draws),
+        "",
+        "=== Game History (last 10 events) ===",
     ])
+    if pv.history:
+        lines.extend(f"- {h}" for h in pv.history)
+    else:
+        lines.append("No history yet.")
     return "\n".join(lines)
 
 
@@ -59,13 +65,40 @@ def _format_legal_actions(actions: list[Action]) -> str:
 
 def _parse_action_response(response: str, actions: list[Action]) -> Action | None:
     """Parse LLM response into an Action."""
+    # Try parsing JSON first
+    try:
+        # Strip markdown code blocks if present
+        clean_resp = response.strip()
+        if clean_resp.startswith("```"):
+            clean_resp = clean_resp.strip("`")
+            if clean_resp.startswith("json"):
+                clean_resp = clean_resp[4:]
+        
+        data = json.loads(clean_resp)
+        if isinstance(data, dict) and "action_index" in data:
+            idx = data["action_index"]
+            if 0 <= idx < len(actions):
+                return actions[idx]
+    except json.JSONDecodeError:
+        pass
+
+    # Fallback to heuristic parsing
     response = response.strip().upper()
     # Try to extract a number
+    import re
+    # Look for "action_index": N or just N
+    match = re.search(r'"action_index"\s*:\s*(\d+)', response)
+    if match:
+        idx = int(match.group(1))
+        if 0 <= idx < len(actions):
+            return actions[idx]
+
     for word in response.replace(",", " ").split():
         if word.isdigit():
             idx = int(word)
             if 0 <= idx < len(actions):
                 return actions[idx]
+    
     # Try "DRAW" literally
     if "DRAW" in response:
         for a in actions:
@@ -114,33 +147,42 @@ class LLMAgent:
         if not legal_actions:
             return None
 
-        prompt = f"""You are playing UNO. Choose your action by responding with ONLY the number of your choice (0 to {len(legal_actions)-1}).
+        prompt = f"""You are playing UNO.
+Objective: Win by playing all your cards correctly. match the top discard card by color (Red, Blue, Green, Yellow) or value (0-9, Skip, Reverse, Draw Two). Wild cards can be played on anything.
 
 {_format_player_view(player_view, player_id)}
 
-=== Legal actions (respond with the number) ===
+=== Legal actions ===
 {_format_legal_actions(legal_actions)}
 
-Respond with a single number:"""
+INSTRUCTIONS:
+Select the best action to win the game.
+Analyze the game history and board state.
+Respond with a JSON object containing the index of your chosen action.
+Example: {{"action_index": 2}}
+"""
 
-        try:
-            resp = self._client.chat.completions.create(
-                model=self._model,
-                messages=[{"role": "user", "content": prompt}],
-                timeout=self._timeout,
-            )
-            content = resp.choices[0].message.content or ""
-            action = _parse_action_response(content, legal_actions)
-            if action is None:
-                # Fallback: pick first DrawCard or first action
-                for a in legal_actions:
-                    if isinstance(a, DrawCard):
-                        return a
-                return legal_actions[0]
-            return action
-        except Exception:
-            # Fallback on error
-            for a in legal_actions:
-                if isinstance(a, DrawCard):
-                    return a
-            return legal_actions[0]
+        for attempt in range(3):
+            try:
+                resp = self._client.chat.completions.create(
+                    model=self._model,
+                    messages=[{"role": "user", "content": prompt}],
+                    timeout=self._timeout,
+                    response_format={"type": "json_object"} if "gpt-4" in self._model or "groq" in self._provider else None
+                )
+                content = resp.choices[0].message.content or ""
+                action = _parse_action_response(content, legal_actions)
+                if action is not None:
+                    return action
+                
+                # If parsed action is None, try again but maybe log it?
+                print(f"[{self.name}] Failed to parse action: {content[:100]}...")
+            except Exception as e:
+                print(f"[{self.name}] Error on attempt {attempt}: {e}")
+
+        # Fallback after retries
+        print(f"[{self.name}] All retries failed. Defaulting to draw/first action.")
+        for a in legal_actions:
+            if isinstance(a, DrawCard):
+                return a
+        return legal_actions[0]

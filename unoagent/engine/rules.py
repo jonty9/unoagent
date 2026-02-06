@@ -148,6 +148,7 @@ def apply_action(state: GameState, player_id: str, action: Action) -> GameState:
     last_color = state.last_played_color
     pending = state.pending_draws
     order = state.player_order
+    history = list(state.history)
 
     if isinstance(action, DrawCard):
         # Draw cards for pending draws first
@@ -164,6 +165,7 @@ def apply_action(state: GameState, player_id: str, action: Action) -> GameState:
             # Skip turn after drawing (no play)
             idx = order.index(current)
             current = order[(idx + direction) % len(order)]
+            history.append(f"{player_id} drew {len(hands[player_id]) - len(state.hands[player_id])} cards (penalty)")
             return GameState(
                 hands=hands,
                 discard_pile=discard,
@@ -173,6 +175,7 @@ def apply_action(state: GameState, player_id: str, action: Action) -> GameState:
                 last_played_color=last_color,
                 pending_draws=pending,
                 player_order=order,
+                history=tuple(history),
             )
 
         # Regular draw: draw one
@@ -188,6 +191,7 @@ def apply_action(state: GameState, player_id: str, action: Action) -> GameState:
         # After draw, turn passes (simplified: no "play the drawn card" for now)
         idx = order.index(current)
         current = order[(idx + direction) % len(order)]
+        history.append(f"{player_id} drew a card")
         return GameState(
             hands=hands,
             discard_pile=discard,
@@ -197,6 +201,7 @@ def apply_action(state: GameState, player_id: str, action: Action) -> GameState:
             last_played_color=last_color,
             pending_draws=pending,
             player_order=order,
+            history=tuple(history),
         )
 
     # PlayCard
@@ -221,6 +226,7 @@ def apply_action(state: GameState, player_id: str, action: Action) -> GameState:
 
     # Check win
     if len(hand) == 0:
+        history.append(f"{player_id} played {play.card} and WON!")
         return GameState(
             hands=hands,
             discard_pile=discard,
@@ -231,7 +237,13 @@ def apply_action(state: GameState, player_id: str, action: Action) -> GameState:
             pending_draws=pending,
             winner=player_id,
             player_order=order,
+            history=tuple(history),
         )
+
+    action_desc = f"{player_id} played {play.card}"
+    if play.chosen_color:
+        action_desc += f" (chose {play.chosen_color.value})"
+    history.append(action_desc)
 
     # Handle special cards
     next_idx = (order.index(current) + direction) % len(order)
@@ -280,4 +292,5 @@ def apply_action(state: GameState, player_id: str, action: Action) -> GameState:
         last_played_color=last_color,
         pending_draws=pending,
         player_order=order,
+        history=tuple(history),
     )
