@@ -24,10 +24,15 @@ def _parse_agents(
 
     parts = [s.strip().lower() for s in agent_specs.split(",") if s.strip()]
     agents: dict[str, AgentProtocol] = {}
-    for i, kind in enumerate(parts):
+    for i, part in enumerate(parts):
         pid = f"player_{i}"
+        if ":" in part:
+            kind, model = part.split(":", 1)
+        else:
+            kind, model = part, llm_model
+
         if kind == "llm":
-            agents[pid] = LLMAgent(provider=llm_provider, model=llm_model)
+            agents[pid] = LLMAgent(provider=llm_provider, model=model)
         elif kind == "human":
             agents[pid] = HumanAgent(name=f"Human_{i}")
         else:
@@ -41,7 +46,7 @@ def play(
         "llm,llm,llm,llm",
         "--agents",
         "-a",
-        help="Comma-separated: llm, human (e.g. llm,llm,human,llm)",
+        help="Comma-separated: llm, human, or llm:model_name (e.g. llm:gpt-4o,human,llm:llama3)",
     ),
     llm_provider: str = typer.Option(
         "openrouter",
@@ -73,7 +78,7 @@ def tournament(
         "llm,llm",
         "--agents",
         "-a",
-        help="Comma-separated agent types (e.g. llm,llm)",
+        help="Comma-separated agent types or llm:model_name (e.g. llm:gpt-4o,llm:llama3)",
     ),
     games: int = typer.Option(100, "--games", "-g", help="Number of games"),
     llm_provider: str = typer.Option(
