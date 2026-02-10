@@ -5,6 +5,10 @@ from __future__ import annotations
 from typing import Optional
 
 import typer
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = typer.Typer(help="UNO game with LLM and human agents")
 
