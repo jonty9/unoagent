@@ -11,6 +11,7 @@ from unoagent.engine.rules import DrawCard, PlayCard
 
 OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 GROQ_BASE = "https://api.groq.com/openai/v1"
+OLLAMA_BASE = "http://localhost:11434/v1"
 
 
 def _format_player_view(pv: PlayerView, player_id: str) -> str:
@@ -123,9 +124,13 @@ class LLMAgent:
         elif provider == "groq":
             base_url = GROQ_BASE
             key = api_key or os.environ.get("GROQ_API_KEY")
+        elif provider == "ollama":
+            base_url = os.environ.get("OLLAMA_BASE_URL", OLLAMA_BASE)
+            key = "ollama"
         else:
             raise ValueError(f"Unknown provider: {provider}")
 
+        # For Ollama, key is "ollama" which is truthy, so this check passes
         if not key:
             raise ValueError(f"API key required for {provider}. Set {provider.upper()}_API_KEY or pass api_key.")
 
