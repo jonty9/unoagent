@@ -12,6 +12,7 @@ from unoagent.engine.rules import DrawCard, PlayCard
 OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 GROQ_BASE = "https://api.groq.com/openai/v1"
 OLLAMA_BASE = "http://localhost:11434/v1"
+HUGGINGFACE_BASE = "https://router.huggingface.co/v1"
 
 
 def _format_player_view(pv: PlayerView, player_id: str) -> str:
@@ -127,6 +128,9 @@ class LLMAgent:
         elif provider == "ollama":
             base_url = os.environ.get("OLLAMA_BASE_URL", OLLAMA_BASE)
             key = "ollama"
+        elif provider == "huggingface":
+            base_url = HUGGINGFACE_BASE
+            key = api_key or os.environ.get("HUGGINGFACE_API_KEY")
         else:
             raise ValueError(f"Unknown provider: {provider}")
 

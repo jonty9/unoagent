@@ -52,7 +52,7 @@ def play(
         "openrouter",
         "--llm-provider",
         "-p",
-        help="LLM provider: openrouter, groq, or ollama",
+        help="LLM provider: openrouter, groq, ollama, or huggingface",
     ),
     llm_model: str = typer.Option(
         "openai/gpt-4o-mini",
@@ -85,7 +85,7 @@ def tournament(
         "openrouter",
         "--llm-provider",
         "-p",
-        help="LLM provider: openrouter, groq, or ollama",
+        help="LLM provider: openrouter, groq, ollama, or huggingface",
     ),
     llm_model: str = typer.Option(
         "openai/gpt-4o-mini",
