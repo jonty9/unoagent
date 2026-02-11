@@ -2,6 +2,7 @@
 
 import json
 import os
+import time
 from typing import Optional
 
 from openai import OpenAI
@@ -66,45 +67,59 @@ def _format_legal_actions(actions: list[Action]) -> str:
 
 def _parse_action_response(response: str, actions: list[Action]) -> Action | None:
     """Parse LLM response into an Action."""
-    # Try parsing JSON first
-    try:
-        # Strip markdown code blocks if present
-        clean_resp = response.strip()
-        if clean_resp.startswith("```"):
-            clean_resp = clean_resp.strip("`")
-            if clean_resp.startswith("json"):
-                clean_resp = clean_resp[4:]
-        
-        data = json.loads(clean_resp)
-        if isinstance(data, dict) and "action_index" in data:
-            idx = data["action_index"]
-            if 0 <= idx < len(actions):
-                return actions[idx]
-    except json.JSONDecodeError:
-        pass
-
-    # Fallback to heuristic parsing
-    response = response.strip().upper()
-    # Try to extract a number
     import re
-    # Look for "action_index": N or just N
-    match = re.search(r'"action_index"\s*:\s*(\d+)', response)
+
+    # 1. Try to find a JSON-like object in the response
+    # We'll be more aggressive and try to handle single quotes by replacing them
+    json_match = re.search(r'(\{.*?\})', response, re.DOTALL)
+    if json_match:
+        json_str = json_match.group(1)
+        # Try strict JSON first
+        try:
+            data = json.loads(json_str)
+            if isinstance(data, dict) and "action_index" in data:
+                idx = data["action_index"]
+                if 0 <= idx < len(actions):
+                    return actions[idx]
+                print(f"[_parse_action_response] Index {idx} out of range (0-{len(actions)-1})")
+        except (json.JSONDecodeError, ValueError):
+            # Try a fuzzy parse for single quotes: {'key': 'val'} -> {"key": "val"}
+            try:
+                # This is a very basic fix for single quotes in simple objects
+                fuzzy_str = json_str.replace("'", '"')
+                data = json.loads(fuzzy_str)
+                if isinstance(data, dict) and "action_index" in data:
+                    idx = data["action_index"]
+                    if 0 <= idx < len(actions):
+                        return actions[idx]
+                    print(f"[_parse_action_response] Index {idx} out of range (0-{len(actions)-1})")
+            except Exception:
+                pass
+
+    # 2. Targeted regex for "action_index": N (Support both ' and " and no quotes)
+    # Matches: "action_index": 1, 'action_index': 1, action_index: 1
+    match = re.search(r'["\']?action_index["\']?\s*:\s*(\d+)', response, re.IGNORECASE)
     if match:
         idx = int(match.group(1))
         if 0 <= idx < len(actions):
             return actions[idx]
+        print(f"[_parse_action_response] Index {idx} out of range (0-{len(actions)-1}) from regex")
 
-    for word in response.replace(",", " ").split():
+    # 3. Fallback: Look for "DRAW" literally
+    if "DRAW" in response.upper():
+        for a in actions:
+            if isinstance(a, DrawCard):
+                return a
+    
+    # 4. Last resort: Try to find a standalone number
+    # Clean up punctuation that commonly sticks to numbers in chatty responses
+    cleaned_response = re.sub(r'[{}\[\]"\'.,:]', ' ', response)
+    for word in cleaned_response.split():
         if word.isdigit():
             idx = int(word)
             if 0 <= idx < len(actions):
                 return actions[idx]
-    
-    # Try "DRAW" literally
-    if "DRAW" in response:
-        for a in actions:
-            if isinstance(a, DrawCard):
-                return a
+
     return None
 
 
@@ -138,6 +153,7 @@ class LLMAgent:
         self._model = model
         self._timeout = timeout
         self._provider = provider
+        print(f"[{self.name}] Initialized with provider={provider}, base_url={base_url}, timeout={timeout}s")
 
     @property
     def name(self) -> str:
@@ -167,23 +183,36 @@ Respond with a JSON object containing the index of your chosen action.
 Example: {{"action_index": 2}}
 """
 
-        for attempt in range(3):
+        for attempt in range(1, 4):
             try:
+                start_time = time.time()
+                print(f"[{self.name}] Attempt {attempt}: Sending request to {self._provider} (timeout={self._timeout}s)...")
+                
                 resp = self._client.chat.completions.create(
                     model=self._model,
                     messages=[{"role": "user", "content": prompt}],
                     timeout=self._timeout,
                     response_format={"type": "json_object"} if "gpt-4" in self._model or "groq" in self._provider else None
                 )
+                
+                duration = time.time() - start_time
                 content = resp.choices[0].message.content or ""
+                print(f"[{self.name}] Received response in {duration:.2f}s")
+                
                 action = _parse_action_response(content, legal_actions)
                 if action is not None:
                     return action
                 
-                # If parsed action is None, try again but maybe log it?
-                print(f"[{self.name}] Failed to parse action: {content[:100]}...")
+                print(f"[{self.name}] Failed to parse action from response:")
+                print("-" * 40)
+                print(content)
+                print("-" * 40)
+                print("Available actions:")
+                print(_format_legal_actions(legal_actions))
+                print("-" * 40)
             except Exception as e:
-                print(f"[{self.name}] Error on attempt {attempt}: {e}")
+                duration = time.time() - start_time
+                print(f"[{self.name}] Error on attempt {attempt} after {duration:.2f}s: {type(e).__name__}: {e}")
 
         # Fallback after retries
         print(f"[{self.name}] All retries failed. Defaulting to draw/first action.")
