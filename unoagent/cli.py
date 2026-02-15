@@ -17,6 +17,7 @@ def _parse_agents(
     agent_specs: str,
     llm_provider: str,
     llm_model: str,
+    rate_limit: Optional[float] = None,
 ) -> dict[str, "AgentProtocol"]:
     from unoagent.agent.protocol import AgentProtocol
     from unoagent.agents.human_agent import HumanAgent
@@ -35,7 +36,7 @@ def _parse_agents(
             model = llm_model
 
         if kind == "llm":
-            agents[pid] = LLMAgent(provider=llm_provider, model=model)
+            agents[pid] = LLMAgent(provider=llm_provider, model=model, rate_limit=rate_limit)
         elif kind == "human":
             agents[pid] = HumanAgent(name=f"Human_{i}")
         else:
@@ -64,11 +65,12 @@ def play(
         help="Model name (e.g. openai/gpt-4o-mini, meta-llama/llama-3-8b-instruct)",
     ),
     seed: Optional[int] = typer.Option(None, "--seed", "-s", help="Random seed"),
+    rate_limit: Optional[float] = typer.Option(None, "--rate-limit", help="Rate limit in requests per minute (per agent)"),
 ) -> None:
     """Run a single UNO game."""
     from unoagent.orchestration.game_runner import GameRunner
 
-    agent_map = _parse_agents(agents, llm_provider, llm_model)
+    agent_map = _parse_agents(agents, llm_provider, llm_model, rate_limit)
     runner = GameRunner(agent_map, seed=seed)
     result = runner.run()
     typer.echo(f"Winner: {result.winner or 'None (draw)'}")
@@ -97,11 +99,12 @@ def tournament(
         help="Model name",
     ),
     seed: Optional[int] = typer.Option(None, "--seed", "-s", help="Random seed"),
+    rate_limit: Optional[float] = typer.Option(None, "--rate-limit", help="Rate limit in requests per minute (per agent)"),
 ) -> None:
     """Run a tournament."""
     from unoagent.orchestration.tournament import run_tournament
 
-    agent_map = _parse_agents(agents, llm_provider, llm_model)
+    agent_map = _parse_agents(agents, llm_provider, llm_model, rate_limit)
     wins = run_tournament(agent_map, num_games=games, seed=seed)
     typer.echo("Tournament results:")
     for pid, w in sorted(wins.items(), key=lambda x: -x[1]):
