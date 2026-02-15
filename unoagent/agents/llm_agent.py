@@ -173,12 +173,17 @@ Example: {{"action_index": 2}}
 
         for attempt in range(3):
             try:
-                resp = self._client.chat.completions.create(
-                    model=self._model,
-                    messages=[{"role": "user", "content": prompt}],
-                    timeout=self._timeout,
-                    response_format={"type": "json_object"} if "gpt-4" in self._model or "groq" in self._provider else None
-                )
+                kwargs = {
+                    "model": self._model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "timeout": self._timeout,
+                }
+                
+                # Only pass response_format if we know the provider supports it and we want JSON mode
+                if "gpt-4" in self._model or "gpt-3.5" in self._model or "groq" in self._provider:
+                     kwargs["response_format"] = {"type": "json_object"}
+
+                resp = self._client.chat.completions.create(**kwargs)
                 content = resp.choices[0].message.content or ""
                 action = _parse_action_response(content, legal_actions)
                 if action is not None:

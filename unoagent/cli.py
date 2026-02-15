@@ -22,21 +22,24 @@ def _parse_agents(
     from unoagent.agents.human_agent import HumanAgent
     from unoagent.agents.llm_agent import LLMAgent
 
-    parts = [s.strip().lower() for s in agent_specs.split(",") if s.strip()]
+    parts = [s.strip() for s in agent_specs.split(",") if s.strip()]
     agents: dict[str, AgentProtocol] = {}
     for i, part in enumerate(parts):
         pid = f"player_{i}"
         if ":" in part:
-            kind, model = part.split(":", 1)
+            kind_raw, model = part.split(":", 1)
+            kind = kind_raw.lower()
         else:
-            kind, model = part, llm_model
+            kind_raw = part
+            kind = kind_raw.lower()
+            model = llm_model
 
         if kind == "llm":
             agents[pid] = LLMAgent(provider=llm_provider, model=model)
         elif kind == "human":
             agents[pid] = HumanAgent(name=f"Human_{i}")
         else:
-            raise typer.BadParameter(f"Unknown agent type: {kind}. Use 'llm' or 'human'.")
+            raise typer.BadParameter(f"Unknown agent type: {kind_raw}. Use 'llm' or 'human'.")
     return agents
 
 
