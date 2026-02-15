@@ -13,6 +13,7 @@ from unoagent.engine.rules import DrawCard, PlayCard
 OPENROUTER_BASE = "https://openrouter.ai/api/v1"
 GROQ_BASE = "https://api.groq.com/openai/v1"
 OLLAMA_BASE = "http://localhost:11434/v1"
+HUGGINGFACE_BASE = "https://router.huggingface.co/v1"
 
 
 def _format_player_view(pv: PlayerView, player_id: str) -> str:
@@ -142,6 +143,9 @@ class LLMAgent:
         elif provider == "ollama":
             base_url = os.environ.get("OLLAMA_BASE_URL", OLLAMA_BASE)
             key = "ollama"
+        elif provider == "huggingface":
+            base_url = HUGGINGFACE_BASE
+            key = api_key or os.environ.get("HUGGINGFACE_API_KEY")
         else:
             raise ValueError(f"Unknown provider: {provider}")
 
@@ -185,6 +189,17 @@ Example: {{"action_index": 2}}
 
         for attempt in range(1, 4):
             try:
+                kwargs = {
+                    "model": self._model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "timeout": self._timeout,
+                }
+                
+                # Only pass response_format if we know the provider supports it and we want JSON mode
+                if "gpt-4" in self._model or "gpt-3.5" in self._model or "groq" in self._provider:
+                     kwargs["response_format"] = {"type": "json_object"}
+
+                resp = self._client.chat.completions.create(**kwargs)
                 start_time = time.time()
                 print(f"[{self.name}] Attempt {attempt}: Sending request to {self._provider} (timeout={self._timeout}s)...")
                 
