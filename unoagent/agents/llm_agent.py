@@ -133,6 +133,7 @@ class LLMAgent:
         model: str = "openai/gpt-4o-mini",
         api_key: Optional[str] = None,
         timeout: float = 30.0,
+        rate_limit: Optional[float] = None,
     ):
         if provider == "openrouter":
             base_url = OPENROUTER_BASE
@@ -157,11 +158,33 @@ class LLMAgent:
         self._model = model
         self._timeout = timeout
         self._provider = provider
-        print(f"[{self.name}] Initialized with provider={provider}, base_url={base_url}, timeout={timeout}s")
+        self._rate_limit = rate_limit  # Requests per minute
+        self._request_history: list[float] = []
+
+        print(f"[{self.name}] Initialized with provider={provider}, base_url={base_url}, timeout={timeout}s, rate_limit={rate_limit or 'None'} rpm")
 
     @property
     def name(self) -> str:
         return f"llm-{self._model}"
+
+    def _wait_for_rate_limit(self):
+        """Block if rate limit is exceeded."""
+        if not self._rate_limit:
+            return
+
+        now = time.time()
+        # Filter history to last 60 seconds
+        self._request_history = [t for t in self._request_history if now - t < 60.0]
+
+        if len(self._request_history) >= self._rate_limit:
+            # Wait until the oldest request in the window expires
+            oldest = self._request_history[0]
+            wait_time = 60.0 - (now - oldest)
+            if wait_time > 0:
+                print(f"[{self.name}] Rate limit reached ({len(self._request_history)}/{self._rate_limit} rpm). Waiting {wait_time:.2f}s...")
+                time.sleep(wait_time)
+        
+        self._request_history.append(time.time())
 
     def get_action(
         self,
@@ -189,6 +212,8 @@ Example: {{"action_index": 2}}
 
         for attempt in range(1, 4):
             try:
+                self._wait_for_rate_limit()
+
                 kwargs = {
                     "model": self._model,
                     "messages": [{"role": "user", "content": prompt}],
@@ -199,16 +224,10 @@ Example: {{"action_index": 2}}
                 if "gpt-4" in self._model or "gpt-3.5" in self._model or "groq" in self._provider:
                      kwargs["response_format"] = {"type": "json_object"}
 
-                resp = self._client.chat.completions.create(**kwargs)
                 start_time = time.time()
                 print(f"[{self.name}] Attempt {attempt}: Sending request to {self._provider} (timeout={self._timeout}s)...")
                 
-                resp = self._client.chat.completions.create(
-                    model=self._model,
-                    messages=[{"role": "user", "content": prompt}],
-                    timeout=self._timeout,
-                    response_format={"type": "json_object"} if "gpt-4" in self._model or "groq" in self._provider else None
-                )
+                resp = self._client.chat.completions.create(**kwargs)
                 
                 duration = time.time() - start_time
                 content = resp.choices[0].message.content or ""
